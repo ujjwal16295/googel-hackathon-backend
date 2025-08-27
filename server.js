@@ -115,6 +115,21 @@ Parties involved:
 - Party 2: ${parties.party2 || 'Not specified'}
 ` : ''}
 
+For the flowchartData section, create a visual representation of the contract flow including:
+1. Contract parties and their roles
+2. Key obligations and responsibilities  
+3. Payment flow and timelines
+4. Termination conditions
+5. Decision points and conditional paths
+6. Important milestones or deadlines
+
+Position nodes logically with start nodes at top-left and end nodes at bottom-right. Use appropriate node types:
+- "start": Contract initiation
+- "party": Contract parties
+- "process": Actions/obligations  
+- "decision": Conditional points
+- "end": Contract completion/termination
+
 Please provide your analysis in the following JSON structure:
 
 {
@@ -159,8 +174,45 @@ Please provide your analysis in the following JSON structure:
   ],
   "redFlags": [
     "string - any major concerns that need immediate attention"
-  ]
+  ],
+  "suggestedQuestions": [
+    {
+      "question": "string - a question users commonly ask about this type of contract",
+      "answer": "string - detailed answer based on the contract content",
+      "category": "string - e.g., Payment, Termination, Liability, General, Obligations"
+    }
+  ],
+"flowchartData": {
+  "nodes": [
+    {
+      "id": "string - unique identifier",
+      "type": "string - start/process/decision/end/party",
+      "label": "string - node text",
+      "description": "string - detailed explanation",
+      "position": {"x": number, "y": number}
+    }
+  ],
+  "edges": [
+    {
+      "id": "string - unique identifier", 
+      "source": "string - source node id",
+      "target": "string - target node id",
+      "label": "string - edge description",
+      "type": "string - default/conditional"
+    }
+  ],
+  "title": "string - flowchart title"
 }
+}
+
+For the suggestedQuestions section, generate 5 relevant questions that users would commonly ask about this specific contract. Base the questions on:
+1. The type of contract and its specific clauses
+2. Common concerns people have about similar agreements
+3. Important terms that need clarification
+4. Potential risks or benefits
+5. Practical implications of the contract
+
+Make sure the answers are specific to the actual contract content, not generic responses.
 
 Focus on:
 1. Identifying potentially risky or unfavorable clauses
@@ -168,6 +220,7 @@ Focus on:
 3. Highlighting vague or ambiguous terms that could cause disputes
 4. Providing actionable recommendations
 5. Being thorough but accessible to non-lawyers
+6. Generating helpful questions users might have
 
 Return only valid JSON without any additional text or formatting.`;
 
@@ -188,6 +241,37 @@ Return only valid JSON without any additional text or formatting.`;
         model: 'gemini-2.5-flash',
         parties: parties
       };
+      
+      // Ensure suggestedQuestions exists
+      if (!analysis.suggestedQuestions || !Array.isArray(analysis.suggestedQuestions)) {
+        analysis.suggestedQuestions = [
+          {
+            "question": "What are my main obligations under this contract?",
+            "answer": "Based on the contract analysis, your main obligations would be determined by the specific terms outlined in the agreement. Please refer to the key terms section for detailed obligations.",
+            "category": "Obligations"
+          },
+          {
+            "question": "How can this contract be terminated?",
+            "answer": "Contract termination procedures should be clearly outlined in the termination clause. Look for specific notice periods and termination conditions.",
+            "category": "Termination"
+          },
+          {
+            "question": "What are the payment terms?",
+            "answer": "Payment terms including amounts, due dates, and payment methods should be specified in the contract. Check for any late payment penalties.",
+            "category": "Payment"
+          },
+          {
+            "question": "What happens if there's a dispute?",
+            "answer": "Dispute resolution mechanisms such as mediation, arbitration, or court procedures should be outlined in the contract.",
+            "category": "General"
+          },
+          {
+            "question": "What are the potential risks I should be aware of?",
+            "answer": "Based on the risk assessment, review the identified risks and red flags in the analysis above.",
+            "category": "General"
+          }
+        ];
+      }
       
       return analysis;
       
@@ -219,6 +303,33 @@ Return only valid JSON without any additional text or formatting.`;
         keyTerms: [],
         recommendations: ["Please retry the analysis for detailed insights"],
         redFlags: [],
+        suggestedQuestions: [
+          {
+            "question": "What are my main obligations under this contract?",
+            "answer": "Due to analysis error, please retry the document analysis for specific obligation details.",
+            "category": "Obligations"
+          },
+          {
+            "question": "How can this contract be terminated?",
+            "answer": "Termination details could not be analyzed due to processing error. Please retry analysis.",
+            "category": "Termination"
+          },
+          {
+            "question": "What are the payment terms?",
+            "answer": "Payment information could not be extracted due to analysis error. Please retry.",
+            "category": "Payment"
+          },
+          {
+            "question": "What are the potential liability issues?",
+            "answer": "Liability assessment failed due to processing error. Please retry the analysis.",
+            "category": "Liability"
+          },
+          {
+            "question": "Are there any concerning clauses I should know about?",
+            "answer": "Detailed clause analysis failed. Please retry the document analysis for specific concerns.",
+            "category": "General"
+          }
+        ],
         metadata: {
           analysisId: uuidv4(),
           timestamp: new Date().toISOString(),
@@ -232,6 +343,37 @@ Return only valid JSON without any additional text or formatting.`;
   } catch (error) {
     console.error('Error calling Gemini API:', error);
     throw new Error('Failed to analyze document with AI: ' + error.message);
+  }
+}
+
+// Function to answer user questions about the contract
+async function answerQuestionWithGemini(question, analysisContext) {
+  try {
+    const prompt = `
+You are an expert legal AI assistant. A user has asked a question about their legal document that you've previously analyzed.
+
+Previous Analysis Context:
+${JSON.stringify(analysisContext, null, 2)}
+
+User Question: "${question}"
+
+Please provide a helpful, accurate answer based on the document analysis. Your answer should:
+1. Be specific to the actual contract content when possible
+2. Use plain language that non-lawyers can understand
+3. Reference specific clauses or sections when relevant
+4. Provide actionable advice when appropriate
+5. Be concise but comprehensive
+6. If the question cannot be answered from the available information, clearly state this
+
+Respond with just the answer text, no JSON formatting needed.`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text().trim();
+    
+  } catch (error) {
+    console.error('Error getting answer from Gemini:', error);
+    throw new Error('Failed to get answer: ' + error.message);
   }
 }
 
@@ -321,7 +463,7 @@ app.post('/api/analyze-document', upload.single('document'), async (req, res) =>
         originalFilename: req.file ? req.file.originalname : null,
         processedAt: new Date().toISOString(),
         contentLength: documentText.length,
-        model: 'gemini-2.0-flash-exp'
+        model: 'gemini-2.5-flash'
       }
     });
     
@@ -347,6 +489,55 @@ app.post('/api/analyze-document', upload.single('document'), async (req, res) =>
   }
 });
 
+// New endpoint for answering user questions
+app.post('/api/ask-question', async (req, res) => {
+  try {
+    const { question, analysisId, context } = req.body;
+    
+    if (!question) {
+      return res.status(400).json({
+        error: 'Question is required'
+      });
+    }
+    
+    if (!context) {
+      return res.status(400).json({
+        error: 'Analysis context is required'
+      });
+    }
+    
+    // Check if Gemini API key is configured
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        error: 'AI service not configured',
+        message: 'Gemini API key not found'
+      });
+    }
+    
+    console.log(`Processing question: ${question}`);
+    const answer = await answerQuestionWithGemini(question, context);
+    
+    res.json({
+      success: true,
+      answer: answer,
+      metadata: {
+        questionId: uuidv4(),
+        analysisId: analysisId,
+        timestamp: new Date().toISOString(),
+        model: 'gemini-2.5-flash'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error processing question:', error);
+    
+    res.status(500).json({
+      error: 'Failed to process question',
+      message: error.message
+    });
+  }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
@@ -366,12 +557,7 @@ app.use((error, req, res, next) => {
   });
 });
 
-// 404 handler
-// app.use('*', (req, res) => {
-//   res.status(404).json({
-//     error: 'Endpoint not found'
-//   });
-// });
+
 
 // Cleanup function for temporary files
 function cleanupTempFiles() {
