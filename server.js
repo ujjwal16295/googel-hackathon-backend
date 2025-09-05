@@ -112,7 +112,7 @@ Parties involved:
 - Party 2: ${parties.party2 || 'Not specified'}
 ` : ''}
 
-For the flowchartData section, create a visual representation of the contract flow including:
+For the flowchartData section, create a very simple visual representation of the contract flow including:
 1. Contract parties and their roles
 2. Key obligations and responsibilities  
 3. Payment flow and timelines
