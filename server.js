@@ -344,7 +344,7 @@ Return only valid JSON without any additional text or formatting.`;
 }
 
 // Function to answer user questions about the contract
-async function answerQuestionWithGemini(question, analysisContext, conversationHistory = []) {
+async function answerQuestionWithGemini(question, analysisContext, conversationHistory = [], originalText = null) {
   try {
     // Build conversation context from history
     let conversationContext = '';
@@ -362,20 +362,26 @@ async function answerQuestionWithGemini(question, analysisContext, conversationH
     const prompt = `
 You are an expert legal AI assistant. A user has asked a question about their legal document that you've previously analyzed.
 
+${originalText ? `
+Full Original Contract Text:
+${originalText}
+
+` : ''}
 Previous Analysis Context:
 ${JSON.stringify(analysisContext, null, 2)}
 ${conversationContext}
 
 Current User Question: "${question}"
 
-Please provide a helpful, accurate answer based on the document analysis and previous conversation context. Your answer should:
-1. Be specific to the actual contract content when possible
-2. Reference previous questions/answers if relevant to provide continuity
-3. Use plain language that non-lawyers can understand
-4. Reference specific clauses or sections when relevant
+Please provide a helpful, accurate answer based on the FULL CONTRACT TEXT and document analysis. Your answer should:
+1. Reference specific clauses, sections, or exact text from the contract when relevant
+2. Be specific to the actual contract content
+3. Reference previous questions/answers if relevant to provide continuity
+4. Use plain language that non-lawyers can understand
 5. Provide actionable advice when appropriate
 6. Be concise but comprehensive
-7. If the question cannot be answered from the available information, clearly state this
+7. If you need to quote the contract, use quotation marks and specify the section/clause if identifiable
+8. If the question cannot be answered from the available information, clearly state this
 
 Respond with just the answer text, no JSON formatting needed.`;
 
@@ -470,6 +476,7 @@ app.post('/api/analyze-document', upload.single('document'), async (req, res) =>
     res.json({
       success: true,
       analysis: analysis,
+      originalText: documentText,
       metadata: {
         source: analysisSource,
         originalFilename: req.file ? req.file.originalname : null,
@@ -504,7 +511,7 @@ app.post('/api/analyze-document', upload.single('document'), async (req, res) =>
 // New endpoint for answering user questions
 app.post('/api/ask-question', async (req, res) => {
   try {
-    const { question, analysisId, context, conversationHistory } = req.body;
+    const { question, analysisId, context, conversationHistory, originalText } = req.body;  // ADD originalText
     
     if (!question) {
       return res.status(400).json({
@@ -518,7 +525,6 @@ app.post('/api/ask-question', async (req, res) => {
       });
     }
     
-    // Check if Gemini API key is configured
     if (!process.env.GEMINI_API_KEY) {
       return res.status(500).json({
         error: 'AI service not configured',
@@ -527,7 +533,12 @@ app.post('/api/ask-question', async (req, res) => {
     }
     
     console.log(`Processing question: ${question}`);
-    const answer = await answerQuestionWithGemini(question, context, conversationHistory || []);
+    const answer = await answerQuestionWithGemini(
+      question, 
+      context, 
+      conversationHistory || [], 
+      originalText || null  // ADD THIS
+    );
     
     res.json({
       success: true,
