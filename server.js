@@ -383,6 +383,15 @@ Please provide a helpful, accurate answer based on the FULL CONTRACT TEXT and do
 7. If you need to quote the contract, use quotation marks and specify the section/clause if identifiable
 8. If the question cannot be answered from the available information, clearly state this
 
+IMPORTANT: Respond with PLAIN TEXT ONLY. Do NOT use:
+- Markdown formatting (**, *, ##, etc.)
+- Code blocks (\`\`\`)
+- HTML tags
+- Asterisks or special characters for formatting
+- Bullet points with special characters
+
+Just write in clear, natural sentences and paragraphs. Use line breaks for separation if needed.
+
 Respond with just the answer text, no JSON formatting needed.`;
 
     const result = await model.generateContent(prompt);
