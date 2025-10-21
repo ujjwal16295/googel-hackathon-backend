@@ -96,7 +96,52 @@ async function extractTextFromFile(filePath, originalName) {
     throw new Error('Failed to extract text from document');
   }
 }
+async function generateSpeechWithGemini(text, voiceName = 'Puck', stylePrompt = null) {
+  try {
+    const ttsModel = genAI.getGenerativeModel({ 
+      model: "gemini-2.5-flash-preview-tts" 
+    });
 
+    // Build the prompt with optional style instructions
+    const prompt = stylePrompt 
+      ? `${stylePrompt}: ${text}` 
+      : text;
+
+    const generationConfig = {
+      responseModalities: ['AUDIO'],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName: voiceName // Options: Puck, Charon, Kore, Fenrir, Aoede
+          }
+        }
+      }
+    };
+
+    const result = await ttsModel.generateContent({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: generationConfig
+    });
+
+    const response = await result.response;
+    
+    // Extract audio data from response
+    const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    
+    if (!audioData) {
+      throw new Error('No audio data returned from Gemini TTS');
+    }
+
+    return {
+      audioData: audioData, // Base64 encoded PCM audio
+      mimeType: 'audio/pcm;codec=pcm;rate=24000'
+    };
+
+  } catch (error) {
+    console.error('Error generating speech with Gemini:', error);
+    throw new Error('Failed to generate speech: ' + error.message);
+  }
+}
 // Gemini AI analysis function
 async function analyzeContractWithGemini(text, parties = {}) {
   try {
@@ -565,6 +610,59 @@ app.post('/api/ask-question', async (req, res) => {
     
     res.status(500).json({
       error: 'Failed to process question',
+      message: error.message
+    });
+  }
+});
+app.post('/api/text-to-speech', async (req, res) => {
+  try {
+    const { text, voiceName, stylePrompt } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({
+        error: 'Text is required'
+      });
+    }
+
+    // Validate text length (max 900 bytes per Gemini TTS limits)
+    if (Buffer.byteLength(text, 'utf8') > 900) {
+      return res.status(400).json({
+        error: 'Text is too long (maximum 900 bytes)'
+      });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        error: 'AI service not configured',
+        message: 'Gemini API key not found'
+      });
+    }
+
+    console.log('Generating speech with Gemini TTS...');
+    const result = await generateSpeechWithGemini(
+      text, 
+      voiceName || 'Puck',
+      stylePrompt
+    );
+
+    // Return audio data as base64
+    res.json({
+      success: true,
+      audioData: result.audioData,
+      mimeType: result.mimeType,
+      metadata: {
+        voiceName: voiceName || 'Puck',
+        model: 'gemini-2.5-flash-preview-tts',
+        timestamp: new Date().toISOString(),
+        textLength: text.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in text-to-speech endpoint:', error);
+    
+    res.status(500).json({
+      error: 'Failed to generate speech',
       message: error.message
     });
   }
