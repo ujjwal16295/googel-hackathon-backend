@@ -614,12 +614,7 @@ app.post('/api/text-to-speech', async (req, res) => {
       });
     }
 
-    // Validate text length (max 900 bytes per Gemini TTS limits)
-    if (Buffer.byteLength(text, 'utf8') > 900) {
-      return res.status(400).json({
-        error: 'Text is too long (maximum 900 bytes)'
-      });
-    }
+
 
     if (!process.env.GEMINI_API_KEY) {
       return res.status(500).json({
