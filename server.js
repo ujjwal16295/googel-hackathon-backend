@@ -653,6 +653,136 @@ app.post('/api/text-to-speech', async (req, res) => {
   }
 });
 
+// Video generation function using Gemini Veo 3.1
+async function generateContractVideoWithGemini(contractSummary, style = 'professional') {
+  try {
+    const prompt = buildVideoPrompt(contractSummary, style);
+    
+    // Note: Veo 3.1 uses a long-running operation pattern
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:generateVideos?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: prompt,
+          config: {
+            numberOfVideos: 1,
+            resolution: '720p', // Options: '720p' or '1080p'
+            aspectRatio: '16:9', // Options: '16:9', '9:16', '1:1'
+            duration: '8s' // Default is 8 seconds
+          }
+        })
+      }
+    );
+
+    const data = await response.json();
+    const operationName = data.name;
+    
+    // Poll for completion
+    const video = await pollVideoOperation(operationName);
+    
+    return {
+      videoData: video.videoBytes, // Base64 encoded video
+      mimeType: 'video/mp4',
+      duration: '8s'
+    };
+
+  } catch (error) {
+    console.error('Error generating video with Gemini Veo:', error);
+    throw new Error('Failed to generate video: ' + error.message);
+  }
+}
+
+// Helper function to build video prompt from contract info
+function buildVideoPrompt(contractSummary, style) {
+  const { documentType, mainPurpose, parties } = contractSummary;
+  
+  // Build a cinematic prompt based on contract details
+  const prompts = {
+    professional: `A clean, professional office setting. Camera slowly pans across a mahogany desk where a ${documentType} document lies open. Soft natural lighting from a window. A hand in business attire enters frame and signs the document with a fountain pen. Ambient office sounds: paper rustling, pen writing, quiet confidence.`,
+    
+    modern: `Modern minimalist workspace with a tablet displaying a digital ${documentType}. Camera orbits around the sleek glass desk. Holographic UI elements appear showing key terms: ${mainPurpose}. Futuristic tech sounds, subtle electronic hum, interface beeps.`,
+    
+    creative: `Animated paper documents floating in a bright, airy space. The ${documentType} unfolds like origami, revealing animated icons representing ${mainPurpose}. Playful whoosh sounds, light chimes, uplifting background music.`
+  };
+  
+  return prompts[style] || prompts.professional;
+}
+
+// Poll operation until video is ready
+async function pollVideoOperation(operationName, maxAttempts = 60) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${operationName}?key=${process.env.GEMINI_API_KEY}`
+    );
+    
+    const operation = await response.json();
+    
+    if (operation.done) {
+      if (operation.error) {
+        throw new Error(`Video generation failed: ${operation.error.message}`);
+      }
+      return operation.response.generatedVideos[0];
+    }
+    
+    // Wait 10 seconds before next poll
+    await new Promise(resolve => setTimeout(resolve, 10000));
+    console.log(`Polling video generation... attempt ${i + 1}/${maxAttempts}`);
+  }
+  
+  throw new Error('Video generation timed out');
+}
+
+// New endpoint for video generation
+app.post('/api/generate-contract-video', async (req, res) => {
+  try {
+    const { contractSummary, style } = req.body;
+    
+    if (!contractSummary) {
+      return res.status(400).json({
+        error: 'Contract summary is required'
+      });
+    }
+    
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        error: 'AI service not configured',
+        message: 'Gemini API key not found'
+      });
+    }
+    
+    console.log('Starting video generation with Veo 3.1...');
+    const result = await generateContractVideoWithGemini(
+      contractSummary,
+      style || 'professional'
+    );
+    
+    res.json({
+      success: true,
+      videoData: result.videoData,
+      mimeType: result.mimeType,
+      metadata: {
+        model: 'veo-3.1-generate-preview',
+        resolution: '720p',
+        duration: result.duration,
+        timestamp: new Date().toISOString(),
+        style: style || 'professional'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error in video generation endpoint:', error);
+    
+    res.status(500).json({
+      error: 'Failed to generate video',
+      message: error.message
+    });
+  }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
