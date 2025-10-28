@@ -8,7 +8,6 @@ const mammoth = require('mammoth');
 const helmet = require('helmet');
 const { v4: uuidv4 } = require('uuid');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { GoogleGenAI } = require('@google/genai');
 
 require('dotenv').config();
 
@@ -17,8 +16,6 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Initialize Gemini AI
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
@@ -657,115 +654,7 @@ app.post('/api/text-to-speech', async (req, res) => {
   }
 });
 
-// Video generation function using Gemini Veo 3.1
-async function generateContractVideoWithGemini(contractSummary, style = 'professional') {
-  try {
-    const prompt = buildVideoPrompt(contractSummary, style);
-    
-    // Use the new SDK syntax
-    let operation = await ai.models.generateVideos({
-      model: "veo-3.1-generate-preview",
-      prompt: prompt,
-    });
 
-    // Poll until done
-    while (!operation.done) {
-      console.log("Waiting for video generation to complete...");
-      await new Promise((resolve) => setTimeout(resolve, 10000));
-      operation = await ai.operations.getVideosOperation({
-        operation: operation,
-      });
-    }
-
-    if (operation.error) {
-      throw new Error(`Video generation failed: ${operation.error.message}`);
-    }
-
-    // Get the video file reference
-    const videoFile = operation.response.generatedVideos[0].video;
-    
-    // Use the SDK to get video bytes directly
-    const videoBytes = await ai.files.read({
-      file: videoFile,
-    });
-    
-    // Convert to base64
-    const videoBase64 = Buffer.from(videoBytes).toString('base64');
-    
-    return {
-      videoData: videoBase64,
-      mimeType: 'video/mp4',
-      duration: '8s'
-    };
-
-  } catch (error) {
-    console.error('Error generating video with Gemini Veo:', error);
-    throw new Error('Failed to generate video: ' + error.message);
-  }
-}
-
-// Helper function to build video prompt from contract info
-function buildVideoPrompt(contractSummary, style) {
-  const { documentType, mainPurpose, parties } = contractSummary;
-  
-  // Build a cinematic prompt based on contract details
-  const prompts = {
-    professional: `A clean, professional office setting. Camera slowly pans across a mahogany desk where a ${documentType} document lies open. Soft natural lighting from a window. A hand in business attire enters frame and signs the document with a fountain pen. Ambient office sounds: paper rustling, pen writing, quiet confidence.`,
-    
-    modern: `Modern minimalist workspace with a tablet displaying a digital ${documentType}. Camera orbits around the sleek glass desk. Holographic UI elements appear showing key terms: ${mainPurpose}. Futuristic tech sounds, subtle electronic hum, interface beeps.`,
-    
-    creative: `Animated paper documents floating in a bright, airy space. The ${documentType} unfolds like origami, revealing animated icons representing ${mainPurpose}. Playful whoosh sounds, light chimes, uplifting background music.`
-  };
-  
-  return prompts[style] || prompts.professional;
-}
-
-// Endpoint for video generation
-app.post('/api/generate-contract-video', async (req, res) => {
-  try {
-    const { contractSummary, style } = req.body;
-    
-    if (!contractSummary) {
-      return res.status(400).json({
-        error: 'Contract summary is required'
-      });
-    }
-    
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({
-        error: 'AI service not configured',
-        message: 'Gemini API key not found'
-      });
-    }
-    
-    console.log('Starting video generation with Veo 3.1...');
-    const result = await generateContractVideoWithGemini(
-      contractSummary,
-      style || 'professional'
-    );
-    
-    res.json({
-      success: true,
-      videoData: result.videoData,
-      mimeType: result.mimeType,
-      metadata: {
-        model: 'veo-3.1-generate-preview',
-        resolution: '720p',
-        duration: result.duration,
-        timestamp: new Date().toISOString(),
-        style: style || 'professional'
-      }
-    });
-    
-  } catch (error) {
-    console.error('Error in video generation endpoint:', error);
-    
-    res.status(500).json({
-      error: 'Failed to generate video',
-      message: error.message
-    });
-  }
-});
 
 // Error handling middleware
 app.use((error, req, res, next) => {
