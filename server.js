@@ -684,29 +684,23 @@ async function generateContractVideoWithGemini(contractSummary, style = 'profess
     // Get the video file reference
     const videoFile = operation.response.generatedVideos[0].video;
     
-    // Download the video to a temporary location
-    const tempDir = path.join(__dirname, 'temp');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
+    // Get the video URI/URL directly
+    const videoUri = videoFile.uri || videoFile.url;
+    
+    if (!videoUri) {
+      throw new Error('No video URI returned from Veo');
     }
     
-    const videoPath = path.join(tempDir, `video_${uuidv4()}.mp4`);
+    // Fetch the video data directly
+    const videoResponse = await fetch(videoUri);
     
-    await ai.files.download({
-      file: videoFile,
-      downloadPath: videoPath,
-    });
-    
-    // Read the video file as base64 for transmission
-    const videoBuffer = fs.readFileSync(videoPath);
-    const videoBase64 = videoBuffer.toString('base64');
-    
-    // Clean up the temporary video file
-    try {
-      fs.unlinkSync(videoPath);
-    } catch (cleanupError) {
-      console.error('Error cleaning up video file:', cleanupError);
+    if (!videoResponse.ok) {
+      throw new Error(`Failed to fetch video: ${videoResponse.statusText}`);
     }
+    
+    // Get video as buffer and convert to base64
+    const videoBuffer = await videoResponse.arrayBuffer();
+    const videoBase64 = Buffer.from(videoBuffer).toString('base64');
     
     return {
       videoData: videoBase64,
