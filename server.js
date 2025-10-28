@@ -8,6 +8,8 @@ const mammoth = require('mammoth');
 const helmet = require('helmet');
 const { v4: uuidv4 } = require('uuid');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
+
 require('dotenv').config();
 
 
@@ -15,6 +17,8 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Initialize Gemini AI
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
@@ -658,34 +662,54 @@ async function generateContractVideoWithGemini(contractSummary, style = 'profess
   try {
     const prompt = buildVideoPrompt(contractSummary, style);
     
-    // Note: Veo 3.1 uses a long-running operation pattern
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:generateVideos?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt: prompt,
-          config: {
-            numberOfVideos: 1,
-            resolution: '720p', // Options: '720p' or '1080p'
-            aspectRatio: '16:9', // Options: '16:9', '9:16', '1:1'
-            duration: '8s' // Default is 8 seconds
-          }
-        })
-      }
-    );
+    // Use the new SDK syntax
+    let operation = await ai.models.generateVideos({
+      model: "veo-3.1-generate-preview",
+      prompt: prompt,
+    });
 
-    const data = await response.json();
-    const operationName = data.name;
+    // Poll until done
+    while (!operation.done) {
+      console.log("Waiting for video generation to complete...");
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+      operation = await ai.operations.getVideosOperation({
+        operation: operation,
+      });
+    }
+
+    if (operation.error) {
+      throw new Error(`Video generation failed: ${operation.error.message}`);
+    }
+
+    // Get the video file reference
+    const videoFile = operation.response.generatedVideos[0].video;
     
-    // Poll for completion
-    const video = await pollVideoOperation(operationName);
+    // Download the video to a temporary location
+    const tempDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const videoPath = path.join(tempDir, `video_${uuidv4()}.mp4`);
+    
+    await ai.files.download({
+      file: videoFile,
+      downloadPath: videoPath,
+    });
+    
+    // Read the video file as base64 for transmission
+    const videoBuffer = fs.readFileSync(videoPath);
+    const videoBase64 = videoBuffer.toString('base64');
+    
+    // Clean up the temporary video file
+    try {
+      fs.unlinkSync(videoPath);
+    } catch (cleanupError) {
+      console.error('Error cleaning up video file:', cleanupError);
+    }
     
     return {
-      videoData: video.videoBytes, // Base64 encoded video
+      videoData: videoBase64,
       mimeType: 'video/mp4',
       duration: '8s'
     };
@@ -712,31 +736,7 @@ function buildVideoPrompt(contractSummary, style) {
   return prompts[style] || prompts.professional;
 }
 
-// Poll operation until video is ready
-async function pollVideoOperation(operationName, maxAttempts = 60) {
-  for (let i = 0; i < maxAttempts; i++) {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/${operationName}?key=${process.env.GEMINI_API_KEY}`
-    );
-    
-    const operation = await response.json();
-    
-    if (operation.done) {
-      if (operation.error) {
-        throw new Error(`Video generation failed: ${operation.error.message}`);
-      }
-      return operation.response.generatedVideos[0];
-    }
-    
-    // Wait 10 seconds before next poll
-    await new Promise(resolve => setTimeout(resolve, 10000));
-    console.log(`Polling video generation... attempt ${i + 1}/${maxAttempts}`);
-  }
-  
-  throw new Error('Video generation timed out');
-}
-
-// New endpoint for video generation
+// Endpoint for video generation
 app.post('/api/generate-contract-video', async (req, res) => {
   try {
     const { contractSummary, style } = req.body;
