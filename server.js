@@ -684,23 +684,13 @@ async function generateContractVideoWithGemini(contractSummary, style = 'profess
     // Get the video file reference
     const videoFile = operation.response.generatedVideos[0].video;
     
-    // Get the video URI/URL directly
-    const videoUri = videoFile.uri || videoFile.url;
+    // Use the SDK to get video bytes directly
+    const videoBytes = await ai.files.read({
+      file: videoFile,
+    });
     
-    if (!videoUri) {
-      throw new Error('No video URI returned from Veo');
-    }
-    
-    // Fetch the video data directly
-    const videoResponse = await fetch(videoUri);
-    
-    if (!videoResponse.ok) {
-      throw new Error(`Failed to fetch video: ${videoResponse.statusText}`);
-    }
-    
-    // Get video as buffer and convert to base64
-    const videoBuffer = await videoResponse.arrayBuffer();
-    const videoBase64 = Buffer.from(videoBuffer).toString('base64');
+    // Convert to base64
+    const videoBase64 = Buffer.from(videoBytes).toString('base64');
     
     return {
       videoData: videoBase64,
