@@ -8,6 +8,7 @@ const mammoth = require('mammoth');
 const helmet = require('helmet');
 const { v4: uuidv4 } = require('uuid');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 
 require('dotenv').config();
 
@@ -18,6 +19,10 @@ const PORT = process.env.PORT || 3001;
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+const genaiClient = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY
+})
 
 // Middleware
 app.use(helmet());
@@ -654,6 +659,146 @@ app.post('/api/text-to-speech', async (req, res) => {
   }
 });
 
+// Video generation endpoint
+app.post('/api/generate-contract-video', async (req, res) => {
+  let tempVideoPath = null;
+  
+  try {
+    const { contractSummary, style } = req.body;
+    
+    if (!contractSummary) {
+      return res.status(400).json({
+        error: 'Contract summary is required'
+      });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        error: 'AI service not configured',
+        message: 'Gemini API key not found'
+      });
+    }
+
+    console.log('=== Starting Video Generation ===');
+    console.log('Contract Summary:', JSON.stringify(contractSummary, null, 2));
+    console.log('Style:', style);
+
+    // Create a cinematic prompt based on contract summary
+    const videoPrompt = `Create a professional ${style || 'business'} video showing a legal contract signing scene. 
+Document Type: ${contractSummary.documentType || 'Legal Agreement'}
+Main Purpose: ${contractSummary.mainPurpose || 'Contract Agreement'}
+The scene should show an elegant office setting with two business professionals reviewing and signing an important contract document on a desk. 
+Warm lighting, professional attire, confident expressions. The camera slowly pans across the document and the signing hands. 
+Cinematic, high quality, 8-second duration.`;
+
+    console.log('Generated Prompt:', videoPrompt);
+    console.log('Calling Google Veo API...');
+
+    // Generate video using Google Veo
+    let operation = await genaiClient.models.generateVideos({
+      model: "veo-3.1-generate-preview",
+      prompt: videoPrompt,
+    });
+
+    console.log('Initial operation created. Polling for completion...');
+
+    // Poll the operation status until the video is ready
+    let pollCount = 0;
+    const maxPolls = 30; // 5 minutes max (30 * 10 seconds)
+    
+    while (!operation.done && pollCount < maxPolls) {
+      pollCount++;
+      console.log(`Poll attempt ${pollCount}/${maxPolls}: Video generation in progress...`);
+      
+      await new Promise((resolve) => setTimeout(resolve, 10000)); // Wait 10 seconds
+      
+      operation = await genaiClient.operations.getVideosOperation({
+        operation: operation,
+      });
+      
+      if (operation.response && operation.response.generatedVideos) {
+        console.log('Operation response received:', JSON.stringify(operation.response, null, 2));
+      }
+    }
+
+    if (!operation.done) {
+      throw new Error('Video generation timed out after 5 minutes');
+    }
+
+    console.log('Video generation completed!');
+    console.log('Full operation.response:', JSON.stringify(operation.response, null, 2));
+    console.log('Generated videos:', operation.response.generatedVideos);
+
+    if (!operation.response.generatedVideos || operation.response.generatedVideos.length === 0) {
+      throw new Error('No video was generated');
+    }
+
+    const videoFile = operation.response.generatedVideos[0].video;
+    console.log('Video file object:', videoFile);
+
+    // Create temp directory if it doesn't exist
+    const tempDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // Download the video to a temporary file
+    const videoId = uuidv4();
+    tempVideoPath = path.join(tempDir, `contract_video_${videoId}.mp4`);
+    
+    console.log('Downloading video to:', tempVideoPath);
+    
+    await genaiClient.files.download({
+      file: videoFile,
+      downloadPath: tempVideoPath,
+    });
+
+    console.log('Video downloaded successfully');
+
+    // Read the video file and convert to base64
+    const videoBuffer = fs.readFileSync(tempVideoPath);
+    const videoBase64 = videoBuffer.toString('base64');
+    
+    console.log('Video converted to base64. Size:', videoBuffer.length, 'bytes');
+
+    // Return the video as base64
+    res.json({
+      success: true,
+      videoData: videoBase64,
+      metadata: {
+        videoId: videoId,
+        model: 'veo-3.1-generate-preview',
+        timestamp: new Date().toISOString(),
+        style: style,
+        prompt: videoPrompt,
+        fileSize: videoBuffer.length
+      }
+    });
+
+    console.log('=== Video Generation Complete ===');
+
+  } catch (error) {
+    console.error('=== Error in video generation ===');
+    console.error('Error details:', error);
+    console.error('Error stack:', error.stack);
+    
+    res.status(500).json({
+      error: 'Failed to generate video',
+      message: error.message,
+      details: error.stack
+    });
+  } finally {
+    // Clean up temporary video file
+    if (tempVideoPath && fs.existsSync(tempVideoPath)) {
+      try {
+        fs.unlinkSync(tempVideoPath);
+        console.log(`Temporary video file deleted: ${tempVideoPath}`);
+      } catch (deleteError) {
+        console.error('Error deleting temporary video file:', deleteError);
+      }
+    }
+  }
+});
 
 
 // Error handling middleware
