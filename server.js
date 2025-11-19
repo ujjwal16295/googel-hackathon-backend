@@ -8,8 +8,16 @@ const mammoth = require('mammoth');
 const helmet = require('helmet');
 const { v4: uuidv4 } = require('uuid');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { createClient } = require('@supabase/supabase-js');
+
 
 require('dotenv').config();
+// Initialize Supabase client (add after genAI initialization)
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
+
 
 
 const app = express();
@@ -453,11 +461,50 @@ app.get('/api/health', (req, res) => {
 });
 
 // Main document analysis endpoint
+// Main document analysis endpoint with authentication and serial tracking
 app.post('/api/analyze-document', upload.single('document'), async (req, res) => {
   let filePath = null;
   
   try {
-    const { parties } = req.body;
+    const { parties, email } = req.body; // ADD email parameter
+    
+    // Check if email is provided
+    if (!email) {
+      return res.status(400).json({ 
+        error: 'Email is required for authentication' 
+      });
+    }
+    
+    // Verify email exists in database (authentication check)
+    const { data: userData, error: authError } = await supabase
+      .from('user_data')
+      .select('email, serial')
+      .eq('email', email)
+      .order('serial', { ascending: false })
+      .limit(1);
+    
+    if (authError) {
+      return res.status(500).json({ 
+        error: 'Authentication check failed', 
+        message: authError.message 
+      });
+    }
+    
+    // Get the last serial number for this email (or 0 if no records exist)
+    const lastSerial = userData && userData.length > 0 ? userData[0].serial : 0;
+    const isAuthenticated = userData && userData.length > 0;
+    
+    // Optional: Require user to exist in database
+    // Uncomment these lines if you want to enforce that user must exist
+    /* 
+    if (!isAuthenticated) {
+      return res.status(401).json({ 
+        error: 'Unauthorized', 
+        message: 'Email not found in database. Please register first.' 
+      });
+    } 
+    */
+    
     let documentText = '';
     let analysisSource = '';
     
@@ -465,33 +512,30 @@ app.post('/api/analyze-document', upload.single('document'), async (req, res) =>
       // File upload processing
       filePath = req.file.path;
       analysisSource = 'file';
-      
       console.log(`Processing file: ${req.file.originalname}`);
       documentText = await extractTextFromFile(filePath, req.file.originalname);
-      
     } else if (req.body.text) {
       // Direct text input processing
       documentText = req.body.text;
       analysisSource = 'text';
       console.log('Processing direct text input');
-      
     } else {
-      return res.status(400).json({
-        error: 'No document or text provided'
+      return res.status(400).json({ 
+        error: 'No document or text provided' 
       });
     }
     
     // Validate minimum content length
     if (documentText.length < 100) {
-      return res.status(400).json({
-        error: 'Document content is too short for meaningful analysis (minimum 100 characters)'
+      return res.status(400).json({ 
+        error: 'Document content is too short for meaningful analysis (minimum 100 characters)' 
       });
     }
     
     // Validate maximum content length for Gemini
     if (documentText.length > 100000) {
-      return res.status(400).json({
-        error: 'Document content is too long (maximum 100,000 characters)'
+      return res.status(400).json({ 
+        error: 'Document content is too long (maximum 100,000 characters)' 
       });
     }
     
@@ -507,19 +551,18 @@ app.post('/api/analyze-document', upload.single('document'), async (req, res) =>
     
     // Check if Gemini API key is configured
     if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({
-        error: 'AI service not configured',
-        message: 'Gemini API key not found'
+      return res.status(500).json({ 
+        error: 'AI service not configured', 
+        message: 'Gemini API key not found' 
       });
     }
     
     // Perform AI analysis with Gemini
     console.log('Starting Gemini AI analysis...');
     const analysis = await analyzeContractWithGemini(documentText, parsedParties);
-    
     console.log('Gemini analysis completed successfully');
     
-    // Return analysis results
+    // Return analysis results with authentication and serial info
     res.json({
       success: true,
       analysis: analysis,
@@ -530,18 +573,23 @@ app.post('/api/analyze-document', upload.single('document'), async (req, res) =>
         processedAt: new Date().toISOString(),
         contentLength: documentText.length,
         model: 'gemini-2.5-flash'
+      },
+      userInfo: {
+        email: email,
+        isAuthenticated: isAuthenticated,
+        currentSerial: lastSerial, // Changed from lastSerial to currentSerial for clarity
+        nextSerial: lastSerial + 1,
+        totalRecords: userData && userData.length > 0 ? userData.length : 0
       }
     });
     
   } catch (error) {
     console.error('Error processing document:', error);
-    
-    res.status(500).json({
-      error: 'Failed to process document',
+    res.status(500).json({ 
+      error: 'Failed to process document', 
       message: error.message,
-      details: error.stack
+      details: error.stack 
     });
-    
   } finally {
     // Always clean up temporary file
     if (filePath && fs.existsSync(filePath)) {
@@ -656,6 +704,123 @@ app.post('/api/text-to-speech', async (req, res) => {
   }
 });
 
+app.post('/api/save-user-data', async (req, res) => {
+  try {
+    const { email, serial, data } = req.body;
+    
+    if (!email || serial === undefined || !data) {
+      return res.status(400).json({
+        error: 'Email, serial, and data are required'
+      });
+    }
+
+    // Check if record exists
+    const { data: existingData, error: fetchError } = await supabase
+      .from('user_data')
+      .select('*')
+      .eq('email', email)
+      .eq('serial', serial)
+      .single();
+
+    if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 is "not found" error
+      throw fetchError;
+    }
+
+    let result;
+    if (existingData) {
+      // Update existing record
+      const { data: updatedData, error: updateError } = await supabase
+        .from('user_data')
+        .update({ 
+          data: data,
+          updated_at: new Date().toISOString()
+        })
+        .eq('email', email)
+        .eq('serial', serial)
+        .select();
+
+      if (updateError) throw updateError;
+      result = updatedData;
+
+      res.json({
+        success: true,
+        message: 'Data updated successfully',
+        data: result[0],
+        operation: 'update'
+      });
+
+    } else {
+      // Insert new record
+      const { data: insertedData, error: insertError } = await supabase
+        .from('user_data')
+        .insert([{ 
+          email, 
+          serial, 
+          data 
+        }])
+        .select();
+
+      if (insertError) throw insertError;
+      result = insertedData;
+
+      res.json({
+        success: true,
+        message: 'Data saved successfully',
+        data: result[0],
+        operation: 'insert'
+      });
+    }
+
+  } catch (error) {
+    console.error('Error saving user data:', error);
+    
+    res.status(500).json({
+      error: 'Failed to save data',
+      message: error.message
+    });
+  }
+});
+app.get('/api/get-user-data/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    
+    if (!email) {
+      return res.status(400).json({
+        error: 'Email is required'
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('user_data')
+      .select('*')
+      .eq('email', email)
+      .order('serial', { ascending: true });
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({
+        error: 'No data found for this email',
+        email: email
+      });
+    }
+
+    res.json({
+      success: true,
+      email: email,
+      count: data.length,
+      data: data
+    });
+
+  } catch (error) {
+    console.error('Error retrieving user data:', error);
+    
+    res.status(500).json({
+      error: 'Failed to retrieve data',
+      message: error.message
+    });
+  }
+});
 
 
 
