@@ -822,6 +822,68 @@ app.get('/api/get-user-data/:email', async (req, res) => {
   }
 });
 
+// Delete specific user data by email and serial
+app.delete('/api/delete-user-data/:email/:serial', async (req, res) => {
+  try {
+    const { email, serial } = req.params;
+    
+    if (!email || !serial) {
+      return res.status(400).json({
+        error: 'Email and serial are required'
+      });
+    }
+
+    // Convert serial to integer
+    const serialNumber = parseInt(serial, 10);
+    
+    if (isNaN(serialNumber)) {
+      return res.status(400).json({
+        error: 'Serial must be a valid number'
+      });
+    }
+
+    // Check if record exists before deleting
+    const { data: existingData, error: fetchError } = await supabase
+      .from('user_data')
+      .select('*')
+      .eq('email', email)
+      .eq('serial', serialNumber)
+      .single();
+
+    if (fetchError || !existingData) {
+      return res.status(404).json({
+        error: 'Record not found',
+        message: `No data found for email: ${email} and serial: ${serialNumber}`
+      });
+    }
+
+    // Delete the record
+    const { error: deleteError } = await supabase
+      .from('user_data')
+      .delete()
+      .eq('email', email)
+      .eq('serial', serialNumber);
+
+    if (deleteError) throw deleteError;
+
+    res.json({
+      success: true,
+      message: 'Data deleted successfully',
+      deletedRecord: {
+        email: email,
+        serial: serialNumber
+      }
+    });
+
+  } catch (error) {
+    console.error('Error deleting user data:', error);
+    
+    res.status(500).json({
+      error: 'Failed to delete data',
+      message: error.message
+    });
+  }
+});
 
 
 // Error handling middleware
