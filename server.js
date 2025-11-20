@@ -143,129 +143,169 @@ async function generateSpeechWithGemini(text, voiceName = 'Puck', stylePrompt = 
     throw new Error('Failed to generate speech: ' + error.message);
   }
 }
+// Function to calculate risk score based on green, yellow, red points
+function calculateRiskScore(greenPoints, yellowPoints, redPoints) {
+  const totalPoints = greenPoints + yellowPoints + redPoints;
+  
+  // Avoid division by zero
+  if (totalPoints === 0) {
+    return 50; // Neutral score if no points
+  }
+  
+  // Formula: (greenPoints + 0.5 * yellowPoints) / totalPoints
+  const numerator = greenPoints + (0.5 * yellowPoints);
+  const ratio = numerator / totalPoints;
+  
+  // Scale to 0-100 (0 = highest risk, 100 = lowest risk)
+  const riskScore = Math.round(ratio * 100);
+  
+  return riskScore;
+}
 // Gemini AI analysis function
 async function analyzeContractWithGemini(text, parties = {}) {
   try {
     const prompt = `
-You are an expert legal AI assistant specializing in contract analysis. Please analyze the following legal document and provide a comprehensive assessment in JSON format.
-
-Contract Text:
-${text}
-
-${parties.party1 || parties.party2 ? `
-Parties involved:
-- Party 1: ${parties.party1 || 'Not specified'}
-- Party 2: ${parties.party2 || 'Not specified'}
-` : ''}
-
-For the flowchartData section, create a very simple visual representation of the contract flow including:
-1. Contract parties and their roles
-2. Key obligations and responsibilities  
-3. Payment flow and timelines
-4. Termination conditions
-5. Decision points and conditional paths
-6. Important milestones or deadlines
-
-Position nodes logically with start nodes at top-left and end nodes at bottom-right. Use appropriate node types:
-- "start": Contract initiation
-- "party": Contract parties
-- "process": Actions/obligations  
-- "decision": Conditional points
-- "end": Contract completion/termination
-
-Please provide your analysis in the following JSON structure:
-
-{
-  "summary": {
-    "documentType": "string - type of contract (e.g., Service Agreement, Employment Contract, etc.)",
-    "mainPurpose": "string - primary purpose of the contract",
-    "keyHighlights": ["array of 3-5 main contract points"],
-    "wordCount": number,
-    "estimatedReadingTime": "string - e.g., '5 minutes'"
-  },
-  "riskAssessment": {
-    "overallRisk": "string - Low/Medium/High",
-    "riskScore": number (1-10),
-    "risks": [
-      {
-        "type": "string - risk category",
-        "severity": "string - Low/Medium/High",
-        "description": "string - detailed description",
-        "location": "string - where in document this appears",
-        "recommendation": "string - suggested action"
-      }
-    ]
-  },
-  "vagueTerms": [
+    You are an expert legal AI assistant specializing in contract analysis. Please analyze the following legal document and provide a comprehensive assessment in JSON format.
+    
+    Contract Text:
+    ${text}
+    
+    ${parties.party1 || parties.party2 ? `
+    Parties involved:
+    - Party 1: ${parties.party1 || 'Not specified'}
+    - Party 2: ${parties.party2 || 'Not specified'}
+    ` : ''}
+    
+    For the flowchartData section, create a very simple visual representation of the contract flow including:
+    1. Contract parties and their roles
+    2. Key obligations and responsibilities  
+    3. Payment flow and timelines
+    4. Termination conditions
+    5. Decision points and conditional paths
+    6. Important milestones or deadlines
+    
+    Position nodes logically with start nodes at top-left and end nodes at bottom-right. Use appropriate node types:
+    - "start": Contract initiation
+    - "party": Contract parties
+    - "process": Actions/obligations  
+    - "decision": Conditional points
+    - "end": Contract completion/termination
+    
+    Please provide your analysis in the following JSON structure:
+    
     {
-      "term": "string - the vague term found",
-      "context": "string - surrounding context",
-      "issue": "string - why this is problematic",
-      "suggestion": "string - how to clarify"
+      "summary": {
+        "documentType": "string - type of contract (e.g., Service Agreement, Employment Contract, etc.)",
+        "mainPurpose": "string - primary purpose of the contract",
+        "keyHighlights": ["array of 3-5 main contract points"],
+        "whatIsIncluded": ["array of 5-7 key things included in this contract - major clauses, benefits, obligations, deliverables"],
+        "contractSummary": "string - 2-3 paragraph comprehensive summary of the entire contract in plain language",
+        "wordCount": number,
+        "estimatedReadingTime": "string - e.g., '5 minutes'"
+      },
+      "riskAssessment": {
+        "overallRisk": "string - Low/Medium/High",
+        "greenPoints": number - count of favorable/safe clauses,
+        "yellowPoints": number - count of moderately risky clauses,
+        "redPoints": number - count of high-risk clauses,
+        "riskScore": number - will be calculated by backend using formula,
+        "risks": [
+          {
+            "type": "string - risk category",
+            "severity": "string - Low/Medium/High",
+            "riskLevel": "string - green/yellow/red",
+            "description": "string - detailed description",
+            "location": "string - where in document this appears",
+            "recommendation": "string - suggested action"
+          }
+        ]
+      },
+      "legalReferences": [
+        {
+          "reference": "string - the legal reference (e.g., 'Section 48 of Constitution', 'Companies Act 2013', 'IPC Section 420')",
+          "context": "string - where/how it's mentioned in contract",
+          "shortExplanation": "string - brief plain language explanation of what this law/section means and why it matters in this contract (2-3 sentences)",
+          "relevance": "string - High/Medium/Low - how relevant to contract"
+        }
+      ],
+      "vagueTerms": [
+        {
+          "term": "string - the vague term found",
+          "context": "string - surrounding context",
+          "issue": "string - why this is problematic",
+          "suggestion": "string - how to clarify"
+        }
+      ],
+      "keyTerms": [
+        {
+          "category": "string - e.g., Payment, Termination, Liability",
+          "term": "string - the actual term",
+          "explanation": "string - plain language explanation",
+          "importance": "string - High/Medium/Low"
+        }
+      ],
+      "recommendations": [
+        "string - actionable recommendations for the user"
+      ],
+      "redFlags": [
+        "string - any major concerns that need immediate attention"
+      ],
+      "suggestedQuestions": [
+        {
+          "question": "string - a question users commonly ask about this type of contract",
+          "answer": "string - detailed answer based on the contract content",
+          "category": "string - e.g., Payment, Termination, Liability, General, Obligations"
+        }
+      ],
+    "flowchartData": {
+      "nodes": [
+        {
+          "id": "string - unique identifier",
+          "type": "string - start/process/decision/end/party",
+          "label": "string - node text",
+          "description": "string - detailed explanation",
+          "position": {"x": number, "y": number}
+        }
+      ],
+      "edges": [
+        {
+          "id": "string - unique identifier", 
+          "source": "string - source node id",
+          "target": "string - target node id",
+          "label": "string - edge description",
+          "type": "string - default/conditional"
+        }
+      ],
+      "title": "string - flowchart title"
     }
-  ],
-  "keyTerms": [
-    {
-      "category": "string - e.g., Payment, Termination, Liability",
-      "term": "string - the actual term",
-      "explanation": "string - plain language explanation",
-      "importance": "string - High/Medium/Low"
     }
-  ],
-  "recommendations": [
-    "string - actionable recommendations for the user"
-  ],
-  "redFlags": [
-    "string - any major concerns that need immediate attention"
-  ],
-  "suggestedQuestions": [
-    {
-      "question": "string - a question users commonly ask about this type of contract",
-      "answer": "string - detailed answer based on the contract content",
-      "category": "string - e.g., Payment, Termination, Liability, General, Obligations"
-    }
-  ],
-"flowchartData": {
-  "nodes": [
-    {
-      "id": "string - unique identifier",
-      "type": "string - start/process/decision/end/party",
-      "label": "string - node text",
-      "description": "string - detailed explanation",
-      "position": {"x": number, "y": number}
-    }
-  ],
-  "edges": [
-    {
-      "id": "string - unique identifier", 
-      "source": "string - source node id",
-      "target": "string - target node id",
-      "label": "string - edge description",
-      "type": "string - default/conditional"
-    }
-  ],
-  "title": "string - flowchart title"
-}
-}
-
-For the suggestedQuestions section, generate 5 relevant questions that users would commonly ask about this specific contract. Base the questions on:
-1. The type of contract and its specific clauses
-2. Common concerns people have about similar agreements
-3. Important terms that need clarification
-4. Potential risks or benefits
-5. Practical implications of the contract
-
-Make sure the answers are specific to the actual contract content, not generic responses.
-
-Focus on:
-1. Identifying potentially risky or unfavorable clauses
-2. Explaining complex legal language in plain terms
-3. Highlighting vague or ambiguous terms that could cause disputes
-4. Providing actionable recommendations
-5. Being thorough but accessible to non-lawyers
-6. Generating helpful questions users might have
-
-Return only valid JSON without any additional text or formatting.`;
+    
+    IMPORTANT INSTRUCTIONS:
+    1. For legalReferences: Identify ANY mention of laws, acts, sections, articles, regulations, or legal provisions (e.g., "Section 48", "Indian Contract Act", "GDPR Article 6"). Provide SHORT explanations (2-3 sentences max) in simple language.
+    
+    2. For summary.whatIsIncluded: List 5-7 major things the contract contains (e.g., "Payment terms of $5000", "3-month notice period", "Non-compete clause", "Intellectual property rights transfer")
+    
+    3. For summary.contractSummary: Write a comprehensive 2-3 paragraph plain English summary covering: who the parties are, what the contract is about, main obligations, payment/compensation, duration, and key conditions.
+    
+    4. For riskAssessment: 
+       - Count greenPoints (favorable clauses like fair payment terms, reasonable timelines, mutual benefits)
+       - Count yellowPoints (moderate concerns like vague language, standard risks)
+       - Count redPoints (serious issues like unlimited liability, unfair terms, missing protections)
+       - Assign riskLevel to each risk as "green", "yellow", or "red"
+       - DO NOT calculate riskScore - leave as 0, backend will calculate it
+    
+    For the suggestedQuestions section, generate 5 relevant questions that users would commonly ask about this specific contract.
+    
+    Focus on:
+    1. Identifying potentially risky or unfavorable clauses
+    2. Explaining complex legal language in plain terms
+    3. Highlighting vague or ambiguous terms that could cause disputes
+    4. Explaining all legal references in simple terms
+    5. Providing actionable recommendations
+    6. Being thorough but accessible to non-lawyers
+    7. Generating helpful questions users might have
+    
+    Return only valid JSON without any additional text or formatting.`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -277,6 +317,12 @@ Return only valid JSON without any additional text or formatting.`;
     try {
       const analysis = JSON.parse(cleanedText);
       
+      // Calculate risk score using the formula
+      if (analysis.riskAssessment) {
+        const { greenPoints = 0, yellowPoints = 0, redPoints = 0 } = analysis.riskAssessment;
+        analysis.riskAssessment.riskScore = calculateRiskScore(greenPoints, yellowPoints, redPoints);
+      }
+      
       // Add metadata
       analysis.metadata = {
         analysisId: uuidv4(),
@@ -284,6 +330,21 @@ Return only valid JSON without any additional text or formatting.`;
         model: 'gemini-2.5-flash',
         parties: parties
       };
+      
+      // Ensure legalReferences exists
+      if (!analysis.legalReferences || !Array.isArray(analysis.legalReferences)) {
+        analysis.legalReferences = [];
+      }
+      
+      // Ensure summary fields exist
+      if (analysis.summary) {
+        if (!analysis.summary.whatIsIncluded || !Array.isArray(analysis.summary.whatIsIncluded)) {
+          analysis.summary.whatIsIncluded = ["Contract details could not be fully extracted"];
+        }
+        if (!analysis.summary.contractSummary) {
+          analysis.summary.contractSummary = "A detailed summary of the contract could not be generated. Please review the document manually.";
+        }
+      }
       
       // Ensure suggestedQuestions exists
       if (!analysis.suggestedQuestions || !Array.isArray(analysis.suggestedQuestions)) {
@@ -328,20 +389,27 @@ Return only valid JSON without any additional text or formatting.`;
           documentType: "Legal Document",
           mainPurpose: "Contract Analysis",
           keyHighlights: ["Document processed successfully"],
+          whatIsIncluded: ["Analysis in progress"],
+          contractSummary: "Unable to generate summary due to processing error. Please retry analysis.",
           wordCount: text.split(' ').length,
           estimatedReadingTime: "5 minutes"
         },
         riskAssessment: {
           overallRisk: "Medium",
-          riskScore: 5,
+          greenPoints: 0,
+          yellowPoints: 1,
+          redPoints: 0,
+          riskScore: 50,
           risks: [{
             type: "Analysis Error",
             severity: "Medium",
+            riskLevel: "yellow",
             description: "Unable to parse detailed analysis. Please try again or contact support.",
             location: "General",
             recommendation: "Retry analysis or seek manual review"
           }]
         },
+        legalReferences: [],
         vagueTerms: [],
         keyTerms: [],
         recommendations: ["Please retry the analysis for detailed insights"],
