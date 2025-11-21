@@ -458,7 +458,7 @@ async function analyzeContractWithGemini(text, parties = {}) {
 }
 
 // Function to answer user questions about the contract
-async function answerQuestionWithGemini(question, analysisContext, conversationHistory = [], originalText = null) {
+async function answerQuestionWithGeminiStream(question, analysisContext, conversationHistory = [], originalText = null, res) {
   try {
     // Build conversation context from history
     let conversationContext = '';
@@ -508,13 +508,41 @@ Just write in clear, natural sentences and paragraphs. Use line breaks for separ
 
 Respond with just the answer text, no JSON formatting needed.`;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text().trim();
+    // Use streaming with Gemini
+    const result = await model.generateContentStream(prompt);
+    
+    let fullAnswer = '';
+    
+    for await (const chunk of result.stream) {
+      const chunkText = chunk.text();
+      fullAnswer += chunkText;
+      
+      // Send chunk to client via SSE
+      res.write(`data: ${JSON.stringify({ 
+        type: 'chunk', 
+        text: chunkText 
+      })}\n\n`);
+      
+      // Flush the response to ensure immediate delivery
+      if (res.flush) res.flush();
+    }
+    
+    // Send completion message with metadata
+    res.write(`data: ${JSON.stringify({ 
+      type: 'done', 
+      fullText: fullAnswer,
+      metadata: {
+        questionId: uuidv4(),
+        timestamp: new Date().toISOString(),
+        model: 'gemini-2.5-flash'
+      }
+    })}\n\n`);
+    
+    if (res.flush) res.flush();
     
   } catch (error) {
-    console.error('Error getting answer from Gemini:', error);
-    throw new Error('Failed to get answer: ' + error.message);
+    console.error('Error in streaming answer:', error);
+    throw error;
   }
 }
 
@@ -672,9 +700,9 @@ app.post('/api/analyze-document', upload.single('document'), async (req, res) =>
 });
 
 // New endpoint for answering user questions
-app.post('/api/ask-question', async (req, res) => {
+app.post('/api/ask-question-stream', async (req, res) => {
   try {
-    const { question, analysisId, context, conversationHistory, originalText } = req.body;  // ADD originalText
+    const { question, analysisId, context, conversationHistory, originalText } = req.body;
     
     if (!question) {
       return res.status(400).json({
@@ -695,32 +723,44 @@ app.post('/api/ask-question', async (req, res) => {
       });
     }
     
-    console.log(`Processing question: ${question}`);
-    const answer = await answerQuestionWithGemini(
-      question, 
-      context, 
-      conversationHistory || [], 
-      originalText || null  // ADD THIS
-    );
+    // Set headers for Server-Sent Events (SSE)
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable buffering for Nginx
     
-    res.json({
-      success: true,
-      answer: answer,
-      metadata: {
-        questionId: uuidv4(),
-        analysisId: analysisId,
-        timestamp: new Date().toISOString(),
-        model: 'gemini-2.5-flash'
-      }
-    });
+    console.log(`Processing streaming question: ${question}`);
+    
+    try {
+      await answerQuestionWithGeminiStream(
+        question, 
+        context, 
+        conversationHistory || [], 
+        originalText || null,
+        res
+      );
+      
+      res.end();
+    } catch (streamError) {
+      console.error('Streaming error:', streamError);
+      res.write(`data: ${JSON.stringify({ error: streamError.message })}\n\n`);
+      res.end();
+    }
     
   } catch (error) {
-    console.error('Error processing question:', error);
+    console.error('Error processing streaming question:', error);
     
-    res.status(500).json({
-      error: 'Failed to process question',
-      message: error.message
-    });
+    // If headers not sent yet, send JSON error
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Failed to process question',
+        message: error.message
+      });
+    } else {
+      // If streaming already started, send SSE error
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.end();
+    }
   }
 });
 app.post('/api/text-to-speech', async (req, res) => {
