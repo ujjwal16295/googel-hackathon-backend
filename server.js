@@ -672,124 +672,55 @@ app.post('/api/analyze-document', upload.single('document'), async (req, res) =>
 });
 
 // New endpoint for answering user questions
-// Add this new streaming endpoint
-app.post('/api/ask-question-stream', async (req, res) => {
+app.post('/api/ask-question', async (req, res) => {
   try {
-    const { question, analysisId, context, conversationHistory, originalText } = req.body;
+    const { question, analysisId, context, conversationHistory, originalText } = req.body;  // ADD originalText
     
     if (!question) {
-      return res.status(400).json({ error: 'Question is required' });
+      return res.status(400).json({
+        error: 'Question is required'
+      });
     }
     
     if (!context) {
-      return res.status(400).json({ error: 'Analysis context is required' });
+      return res.status(400).json({
+        error: 'Analysis context is required'
+      });
     }
     
     if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: 'AI service not configured',
         message: 'Gemini API key not found'
       });
     }
-
-    // Set headers for SSE (Server-Sent Events)
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
     
-    console.log(`Processing streaming question: ${question}`);
+    console.log(`Processing question: ${question}`);
+    const answer = await answerQuestionWithGemini(
+      question, 
+      context, 
+      conversationHistory || [], 
+      originalText || null  // ADD THIS
+    );
     
-    // Build conversation context
-    let conversationContext = '';
-    if (conversationHistory && conversationHistory.length > 0) {
-      conversationContext = '\n\nPrevious Conversation:\n';
-      conversationHistory.forEach(msg => {
-        if (msg.role === 'user') {
-          conversationContext += `User: ${msg.content}\n`;
-        } else if (msg.role === 'assistant') {
-          conversationContext += `Assistant: ${msg.content}\n`;
-        }
-      });
-    }
-
-    const prompt = `
-You are an expert legal AI assistant. A user has asked a question about their legal document that you've previously analyzed.
-
-${originalText ? `
-Full Original Contract Text:
-${originalText}
-
-` : ''}
-Previous Analysis Context:
-${JSON.stringify(context, null, 2)}
-${conversationContext}
-
-Current User Question: "${question}"
-
-Please provide a helpful, accurate answer based on the FULL CONTRACT TEXT and document analysis. Your answer should:
-1. Reference specific clauses, sections, or exact text from the contract when relevant
-2. Be specific to the actual contract content
-3. Reference previous questions/answers if relevant to provide continuity
-4. Use plain language that non-lawyers can understand
-5. Provide actionable advice when appropriate
-6. Be concise but comprehensive
-7. If you need to quote the contract, use quotation marks and specify the section/clause if identifiable
-8. If the question cannot be answered from the available information, clearly state this
-
-IMPORTANT: Respond with PLAIN TEXT ONLY. Do NOT use:
-- Markdown formatting (**, *, ##, etc.)
-- Code blocks (\`\`\`)
-- HTML tags
-- Asterisks or special characters for formatting
-- Bullet points with special characters
-
-Just write in clear, natural sentences and paragraphs. Use line breaks for separation if needed.
-
-Respond with just the answer text, no JSON formatting needed.`;
-
-    // Use generateContentStream for streaming
-    const result = await model.generateContentStream(prompt);
-    
-    let fullText = '';
-    
-    // Stream the response chunks
-    for await (const chunk of result.stream) {
-      const chunkText = chunk.text();
-      fullText += chunkText;
-      
-      // Send chunk as SSE
-      res.write(`data: ${JSON.stringify({ 
-        chunk: chunkText,
-        done: false 
-      })}\n\n`);
-    }
-    
-    // Send final message
-    res.write(`data: ${JSON.stringify({ 
-      chunk: '',
-      done: true,
+    res.json({
+      success: true,
+      answer: answer,
       metadata: {
         questionId: uuidv4(),
         analysisId: analysisId,
         timestamp: new Date().toISOString(),
-        model: 'gemini-2.5-flash',
-        fullText: fullText
+        model: 'gemini-2.5-flash'
       }
-    })}\n\n`);
-    
-    res.end();
+    });
     
   } catch (error) {
-    console.error('Error processing streaming question:', error);
+    console.error('Error processing question:', error);
     
-    // Send error as SSE
-    res.write(`data: ${JSON.stringify({ 
+    res.status(500).json({
       error: 'Failed to process question',
-      message: error.message,
-      done: true 
-    })}\n\n`);
-    
-    res.end();
+      message: error.message
+    });
   }
 });
 app.post('/api/text-to-speech', async (req, res) => {
