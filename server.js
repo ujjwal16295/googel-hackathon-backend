@@ -161,7 +161,7 @@ function calculateRiskScore(greenPoints, yellowPoints, redPoints) {
   
   return riskScore;
 }
-// Gemini AI analysis function
+// Replace the analyzeContractWithGemini function in server.js
 async function analyzeContractWithGemini(text, parties = {}) {
   try {
     const prompt = `
@@ -175,6 +175,34 @@ async function analyzeContractWithGemini(text, parties = {}) {
     - Party 1: ${parties.party1 || 'Not specified'}
     - Party 2: ${parties.party2 || 'Not specified'}
     ` : ''}
+    
+    IMPORTANT INSTRUCTIONS FOR RISK ASSESSMENT:
+    
+    You must categorize ALL clauses, terms, and conditions into THREE risk levels:
+    
+    1. GREEN (Very Low to No Risk): Favorable, standard, or protective clauses
+       - Fair and balanced terms
+       - Standard industry practices
+       - Clear definitions
+       - Reasonable timelines
+       - Mutual benefits
+       - Adequate protections
+       
+    2. YELLOW (Medium Risk): Potentially concerning but not critical
+       - Slightly vague language
+       - Terms that could be more specific
+       - Standard risks that need awareness
+       - Clauses requiring negotiation consideration
+       
+    3. RED (High Risk): Critical issues requiring immediate attention
+       - Unfair or one-sided terms
+       - Unlimited liability
+       - Unreasonable obligations
+       - Missing protections
+       - Ambiguous termination clauses
+       - Potentially illegal provisions
+    
+    CRITICAL: Only include YELLOW and RED risks if they genuinely exist in the contract. Do NOT force-create risks. If the contract is well-written with mostly favorable terms, it's perfectly acceptable to have many GREEN points and few or zero YELLOW/RED points.
     
     For the flowchartData section, create a very simple visual representation of the contract flow including:
     1. Contract parties and their roles
@@ -197,26 +225,39 @@ async function analyzeContractWithGemini(text, parties = {}) {
       "summary": {
         "documentType": "string - type of contract (e.g., Service Agreement, Employment Contract, etc.)",
         "mainPurpose": "string - primary purpose of the contract",
-        "keyHighlights": ["array of 3-5 main contract points"],
-        "whatIsIncluded": ["array of 5-7 key things included in this contract - major clauses, benefits, obligations, deliverables"],
+        "keyHighlights": ["array of all main contract points"],
+        "whatIsIncluded": ["array of all key things included in this contract - major clauses, benefits, obligations, deliverables"],
         "contractSummary": "string - 2-3 paragraph comprehensive summary of the entire contract in plain language",
         "wordCount": number,
         "estimatedReadingTime": "string - e.g., '5 minutes'"
       },
       "riskAssessment": {
-        "overallRisk": "string - Low/Medium/High",
+        "overallRisk": "string - Low/Medium/High (based on the distribution of risk levels)",
         "greenPoints": number - count of favorable/safe clauses,
-        "yellowPoints": number - count of moderately risky clauses,
-        "redPoints": number - count of high-risk clauses,
-        "riskScore": number - will be calculated by backend using formula,
-        "risks": [
+        "yellowPoints": number - count of moderately risky clauses (ONLY if they exist),
+        "redPoints": number - count of high-risk clauses (ONLY if they exist),
+        "riskScore": 0,
+        "greenRisks": [
           {
             "type": "string - risk category",
-            "severity": "string - Low/Medium/High",
-            "riskLevel": "string - green/yellow/red",
-            "description": "string - detailed description",
+            "description": "string - what makes this favorable or low-risk",
+            "location": "string - where in document this appears"
+          }
+        ],
+        "yellowRisks": [
+          {
+            "type": "string - risk category",
+            "description": "string - detailed description of the concern",
             "location": "string - where in document this appears",
             "recommendation": "string - suggested action"
+          }
+        ],
+        "redRisks": [
+          {
+            "type": "string - risk category",
+            "description": "string - detailed description of the critical issue",
+            "location": "string - where in document this appears",
+            "recommendation": "string - urgent action needed"
           }
         ]
       },
@@ -248,7 +289,7 @@ async function analyzeContractWithGemini(text, parties = {}) {
         "string - actionable recommendations for the user"
       ],
       "redFlags": [
-        "string - any major concerns that need immediate attention"
+        "string - any major concerns that need immediate attention (ONLY if they exist)"
       ],
       "suggestedQuestions": [
         {
@@ -257,53 +298,37 @@ async function analyzeContractWithGemini(text, parties = {}) {
           "category": "string - e.g., Payment, Termination, Liability, General, Obligations"
         }
       ],
-    "flowchartData": {
-      "nodes": [
-        {
-          "id": "string - unique identifier",
-          "type": "string - start/process/decision/end/party",
-          "label": "string - node text",
-          "description": "string - detailed explanation",
-          "position": {"x": number, "y": number}
-        }
-      ],
-      "edges": [
-        {
-          "id": "string - unique identifier", 
-          "source": "string - source node id",
-          "target": "string - target node id",
-          "label": "string - edge description",
-          "type": "string - default/conditional"
-        }
-      ],
-      "title": "string - flowchart title"
+      "flowchartData": {
+        "nodes": [
+          {
+            "id": "string - unique identifier",
+            "type": "string - start/process/decision/end/party",
+            "label": "string - node text",
+            "description": "string - detailed explanation",
+            "position": {"x": number, "y": number}
+          }
+        ],
+        "edges": [
+          {
+            "id": "string - unique identifier", 
+            "source": "string - source node id",
+            "target": "string - target node id",
+            "label": "string - edge description",
+            "type": "string - default/conditional"
+          }
+        ],
+        "title": "string - flowchart title"
+      }
     }
-    }
-    
-    IMPORTANT INSTRUCTIONS:
-    1. For legalReferences: Identify ANY mention of laws, acts, sections, articles, regulations, or legal provisions (e.g., "Section 48", "Indian Contract Act", "GDPR Article 6"). Provide SHORT explanations (2-3 sentences max) in simple language.
-    
-    2. For summary.whatIsIncluded: List 5-7 major things the contract contains (e.g., "Payment terms of $5000", "3-month notice period", "Non-compete clause", "Intellectual property rights transfer")
-    
-    3. For summary.contractSummary: Write a comprehensive 2-3 paragraph plain English summary covering: who the parties are, what the contract is about, main obligations, payment/compensation, duration, and key conditions.
-    
-    4. For riskAssessment: 
-       - Count greenPoints (favorable clauses like fair payment terms, reasonable timelines, mutual benefits)
-       - Count yellowPoints (moderate concerns like vague language, standard risks)
-       - Count redPoints (serious issues like unlimited liability, unfair terms, missing protections)
-       - Assign riskLevel to each risk as "green", "yellow", or "red"
-       - DO NOT calculate riskScore - leave as 0, backend will calculate it
-    
-    For the suggestedQuestions section, generate 5 relevant questions that users would commonly ask about this specific contract.
     
     Focus on:
-    1. Identifying potentially risky or unfavorable clauses
-    2. Explaining complex legal language in plain terms
-    3. Highlighting vague or ambiguous terms that could cause disputes
-    4. Explaining all legal references in simple terms
-    5. Providing actionable recommendations
-    6. Being thorough but accessible to non-lawyers
-    7. Generating helpful questions users might have
+    1. Being honest about risk levels - don't inflate or deflate risks
+    2. Identifying genuinely favorable clauses as GREEN
+    3. Only marking YELLOW if there's a real concern worth noting
+    4. Only marking RED if there's a critical issue
+    5. Explaining complex legal language in plain terms
+    6. Providing actionable recommendations only where needed
+    7. Being thorough but realistic about the contract quality
     
     Return only valid JSON without any additional text or formatting.`;
 
@@ -317,10 +342,15 @@ async function analyzeContractWithGemini(text, parties = {}) {
     try {
       const analysis = JSON.parse(cleanedText);
       
-      // Calculate risk score using the formula
+      // Calculate risk score using the NEW formula
       if (analysis.riskAssessment) {
         const { greenPoints = 0, yellowPoints = 0, redPoints = 0 } = analysis.riskAssessment;
         analysis.riskAssessment.riskScore = calculateRiskScore(greenPoints, yellowPoints, redPoints);
+        
+        // Ensure the risk arrays exist
+        if (!analysis.riskAssessment.greenRisks) analysis.riskAssessment.greenRisks = [];
+        if (!analysis.riskAssessment.yellowRisks) analysis.riskAssessment.yellowRisks = [];
+        if (!analysis.riskAssessment.redRisks) analysis.riskAssessment.redRisks = [];
       }
       
       // Add metadata
@@ -331,12 +361,11 @@ async function analyzeContractWithGemini(text, parties = {}) {
         parties: parties
       };
       
-      // Ensure legalReferences exists
+      // Ensure other required fields exist (same as before)
       if (!analysis.legalReferences || !Array.isArray(analysis.legalReferences)) {
         analysis.legalReferences = [];
       }
       
-      // Ensure summary fields exist
       if (analysis.summary) {
         if (!analysis.summary.whatIsIncluded || !Array.isArray(analysis.summary.whatIsIncluded)) {
           analysis.summary.whatIsIncluded = ["Contract details could not be fully extracted"];
@@ -346,7 +375,6 @@ async function analyzeContractWithGemini(text, parties = {}) {
         }
       }
       
-      // Ensure suggestedQuestions exists
       if (!analysis.suggestedQuestions || !Array.isArray(analysis.suggestedQuestions)) {
         analysis.suggestedQuestions = [
           {
@@ -383,7 +411,7 @@ async function analyzeContractWithGemini(text, parties = {}) {
       console.error('Error parsing Gemini response as JSON:', parseError);
       console.log('Raw response:', analysisText);
       
-      // Fallback response if JSON parsing fails
+      // Fallback response (same as before but with new structure)
       return {
         summary: {
           documentType: "Legal Document",
@@ -400,14 +428,14 @@ async function analyzeContractWithGemini(text, parties = {}) {
           yellowPoints: 1,
           redPoints: 0,
           riskScore: 50,
-          risks: [{
+          greenRisks: [],
+          yellowRisks: [{
             type: "Analysis Error",
-            severity: "Medium",
-            riskLevel: "yellow",
             description: "Unable to parse detailed analysis. Please try again or contact support.",
             location: "General",
             recommendation: "Retry analysis or seek manual review"
-          }]
+          }],
+          redRisks: []
         },
         legalReferences: [],
         vagueTerms: [],
@@ -419,26 +447,6 @@ async function analyzeContractWithGemini(text, parties = {}) {
             "question": "What are my main obligations under this contract?",
             "answer": "Due to analysis error, please retry the document analysis for specific obligation details.",
             "category": "Obligations"
-          },
-          {
-            "question": "How can this contract be terminated?",
-            "answer": "Termination details could not be analyzed due to processing error. Please retry analysis.",
-            "category": "Termination"
-          },
-          {
-            "question": "What are the payment terms?",
-            "answer": "Payment information could not be extracted due to analysis error. Please retry.",
-            "category": "Payment"
-          },
-          {
-            "question": "What are the potential liability issues?",
-            "answer": "Liability assessment failed due to processing error. Please retry the analysis.",
-            "category": "Liability"
-          },
-          {
-            "question": "Are there any concerning clauses I should know about?",
-            "answer": "Detailed clause analysis failed. Please retry the document analysis for specific concerns.",
-            "category": "General"
           }
         ],
         metadata: {
