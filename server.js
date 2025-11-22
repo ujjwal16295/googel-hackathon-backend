@@ -681,8 +681,6 @@ app.post('/api/analyze-document', upload.single('document'), async (req, res) =>
       userInfo: {
         email: email,
         isAuthenticated: isAuthenticated,
-        currentSerial: lastSerial, // Changed from lastSerial to currentSerial for clarity
-        nextSerial: lastSerial + 1,
         totalRecords: userData && userData.length > 0 ? userData.length : 0
       }
     });
