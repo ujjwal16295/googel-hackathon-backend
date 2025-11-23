@@ -225,7 +225,7 @@ async function analyzeContractWithGemini(text, parties = {}) {
       "summary": {
         "documentType": "string - type of contract (e.g., Service Agreement, Employment Contract, etc.)",
         "mainPurpose": "string - primary purpose of the contract",
-        "keyHighlights": ["array of all main contract points"],
+        "keyHighlights": ["array of 5-10 main contract points"],
         "whatIsIncluded": ["array of all key things included in this contract - major clauses, benefits, obligations, deliverables"],
         "contractSummary": "string - 2-3 paragraph comprehensive summary of the entire contract in plain language",
         "wordCount": number,
