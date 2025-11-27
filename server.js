@@ -93,7 +93,7 @@ async function getOrCreateContractCache(contractText, analysisId) {
     // Create new cache
     console.log('Creating new cache for contract...');
     const cache = await genAI.caches.create({
-      model: 'models/gemini-2.5-flash-001', // Must use explicit version
+      model: 'gemini-2.5-flash', // Must use explicit version
       config: {
         displayName: `contract-${analysisId}`,
         systemInstruction: 'You are an expert legal AI assistant specializing in contract analysis.',
@@ -588,7 +588,7 @@ Respond with just the answer text, no JSON formatting needed.`;
 
     // Use model with explicit version suffix
     const model = genAI.getGenerativeModel({ 
-      model: "models/gemini-2.5-flash-001" 
+      model: "gemini-2.5-flash" 
     });
     
     // Generate content with cache if available
@@ -623,7 +623,7 @@ Respond with just the answer text, no JSON formatting needed.`;
       metadata: {
         questionId: uuidv4(),
         timestamp: new Date().toISOString(),
-        model: 'gemini-2.5-flash-001',
+        model: 'gemini-2.5-flash',
         usedCache: !!cacheName
       }
     })}\n\n`);
