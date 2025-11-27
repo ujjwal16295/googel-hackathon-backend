@@ -69,72 +69,6 @@ const upload = multer({
   }
 });
 
-// Cache storage (in-memory for this session)
-const contractCaches = new Map();
-
-// Create or get cache for a contract
-async function getOrCreateContractCache(contractText, analysisId) {
-  try {
-    // Check if cache already exists for this analysis
-    if (contractCaches.has(analysisId)) {
-      const cacheInfo = contractCaches.get(analysisId);
-      
-      // Check if cache is still valid (not expired)
-      const cacheDetails = await genAI.caches.get(cacheInfo.cacheName);
-      if (cacheDetails) {
-        console.log(`Using existing cache: ${cacheInfo.cacheName}`);
-        return cacheInfo.cacheName;
-      } else {
-        // Cache expired, remove from map
-        contractCaches.delete(analysisId);
-      }
-    }
-    
-    // Create new cache
-    console.log('Creating new cache for contract...');
-    const cache = await genAI.caches.create({
-      model: 'gemini-2.5-flash', // Must use explicit version
-      config: {
-        displayName: `contract-${analysisId}`,
-        systemInstruction: 'You are an expert legal AI assistant specializing in contract analysis.',
-        contents: [{
-          role: 'user',
-          parts: [{ text: `Full Contract Text for Reference:\n\n${contractText}` }]
-        }],
-        ttl: '3600s' // 1 hour cache
-      }
-    });
-    
-    // Store cache info
-    contractCaches.set(analysisId, {
-      cacheName: cache.name,
-      createdAt: new Date().toISOString()
-    });
-    
-    console.log(`Cache created: ${cache.name}`);
-    return cache.name;
-    
-  } catch (error) {
-    console.error('Error creating cache:', error);
-    // If caching fails, return null and fallback to sending full text
-    return null;
-  }
-}
-
-// Delete cache when analysis session ends
-async function deleteContractCache(analysisId) {
-  try {
-    if (contractCaches.has(analysisId)) {
-      const cacheInfo = contractCaches.get(analysisId);
-      await genAI.caches.delete(cacheInfo.cacheName);
-      contractCaches.delete(analysisId);
-      console.log(`Cache deleted: ${cacheInfo.cacheName}`);
-    }
-  } catch (error) {
-    console.error('Error deleting cache:', error);
-  }
-}
-
 // Utility function to extract text from different file types
 async function extractTextFromFile(filePath, originalName) {
   const extension = path.extname(originalName).toLowerCase();
@@ -532,15 +466,8 @@ async function analyzeContractWithGemini(text, parties = {}) {
 }
 
 // Function to answer user questions about the contract
-async function answerQuestionWithGeminiStream(question, analysisContext, conversationHistory = [], originalText = null, analysisId = null, res) {
+async function answerQuestionWithGeminiStream(question, analysisContext, conversationHistory = [], originalText = null, res) {
   try {
-    let cacheName = null;
-    
-    // Try to create/get cache if we have original text and analysisId
-    if (originalText && analysisId && originalText.length >= 1024) {
-      cacheName = await getOrCreateContractCache(originalText, analysisId);
-    }
-    
     // Build conversation context from history
     let conversationContext = '';
     if (conversationHistory && conversationHistory.length > 0) {
@@ -555,7 +482,10 @@ async function answerQuestionWithGeminiStream(question, analysisContext, convers
     }
 
     const prompt = `
-${!cacheName ? `Full Original Contract Text:
+You are an expert legal AI assistant. A user has asked a question about their legal document that you've previously analyzed.
+
+${originalText ? `
+Full Original Contract Text:
 ${originalText}
 
 ` : ''}
@@ -565,7 +495,7 @@ ${conversationContext}
 
 Current User Question: "${question}"
 
-Please provide a helpful, accurate answer based on the ${cacheName ? 'CACHED CONTRACT TEXT' : 'FULL CONTRACT TEXT'} and document analysis. Your answer should:
+Please provide a helpful, accurate answer based on the FULL CONTRACT TEXT and document analysis. Your answer should:
 1. Reference specific clauses, sections, or exact text from the contract when relevant
 2. Be specific to the actual contract content
 3. Reference previous questions/answers if relevant to provide continuity
@@ -586,20 +516,8 @@ Just write in clear, natural sentences and paragraphs. Use line breaks for separ
 
 Respond with just the answer text, no JSON formatting needed.`;
 
-    // Use model with explicit version suffix
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash" 
-    });
-    
-    // Generate content with cache if available
-    const generationConfig = cacheName ? {
-      cachedContent: cacheName
-    } : {};
-    
-    const result = await model.generateContentStream({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: generationConfig
-    });
+    // Use streaming with Gemini
+    const result = await model.generateContentStream(prompt);
     
     let fullAnswer = '';
     
@@ -613,6 +531,7 @@ Respond with just the answer text, no JSON formatting needed.`;
         text: chunkText 
       })}\n\n`);
       
+      // Flush the response to ensure immediate delivery
       if (res.flush) res.flush();
     }
     
@@ -623,8 +542,7 @@ Respond with just the answer text, no JSON formatting needed.`;
       metadata: {
         questionId: uuidv4(),
         timestamp: new Date().toISOString(),
-        model: 'gemini-2.5-flash',
-        usedCache: !!cacheName
+        model: 'gemini-2.5-flash'
       }
     })}\n\n`);
     
@@ -815,7 +733,7 @@ app.post('/api/ask-question-stream', async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable buffering for Nginx
     
     console.log(`Processing streaming question: ${question}`);
     
@@ -825,7 +743,6 @@ app.post('/api/ask-question-stream', async (req, res) => {
         context, 
         conversationHistory || [], 
         originalText || null,
-        analysisId || null,  // Pass analysisId for cache management
         res
       );
       
@@ -839,18 +756,19 @@ app.post('/api/ask-question-stream', async (req, res) => {
   } catch (error) {
     console.error('Error processing streaming question:', error);
     
+    // If headers not sent yet, send JSON error
     if (!res.headersSent) {
       res.status(500).json({
         error: 'Failed to process question',
         message: error.message
       });
     } else {
+      // If streaming already started, send SSE error
       res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
       res.end();
     }
   }
 });
-
 app.post('/api/text-to-speech', async (req, res) => {
   try {
     const { text, voiceName, stylePrompt } = req.body;
