@@ -329,6 +329,17 @@ async function analyzeContractWithGemini(text, parties = {}) {
     5. Explaining complex legal language in plain terms
     6. Providing actionable recommendations only where needed
     7. Being thorough but realistic about the contract quality
+
+    CRITICAL - SIMPLE ENGLISH REQUIREMENT:
+    ========================================
+    Write ALL explanations, descriptions, recommendations, and answers in SIMPLE, EVERYDAY ENGLISH that anyone without legal knowledge can easily understand. 
+    
+    - Use everyday words: Say "protect you from costs" instead of "indemnify", say "from now on" instead of "hereinafter"
+    - Write like you're explaining to a friend who knows nothing about law
+    - Assume the reader has no legal background
+    
+    Every description, explanation, and recommendation must be understandable by someone with a 7th-grade reading level.
+    ========================================
     
     Return only valid JSON without any additional text or formatting.`;
 
